@@ -74,7 +74,11 @@ object MongoInferSchema extends Logging {
       singlePartitionRDD.appendPipeline(appendedPipeline)
     } else {
       val sampleData: Seq[BsonDocument] = singlePartitionRDD.appendPipeline(Seq(
-        Aggregates.project(Projections.include("_id")), Aggregates.sort(Sorts.descending("_id")), Aggregates.limit(samplePoolSize)
+        /* Ensure limit is *before* sort otherwise this could take a long time on collections with a large amount of docs
+         as an index cannot be used given that $project is in the pipeline - form the MongoDB manual:
+         $sort operator can take advantage of an index as long as it is not preceded by a $project, $unwind, or $group stage.
+         */
+        Aggregates.project(Projections.include("_id")), Aggregates.limit(samplePoolSize), Aggregates.sort(Sorts.descending("_id"))
       )).takeSample(withReplacement = false, num = sampleSize).toSeq
       Try(sampleData.map(_.get("_id")).asJava) match {
         case Success(_ids) => singlePartitionRDD.appendPipeline(Seq(Aggregates.`match`(Filters.in("_id", _ids))))
